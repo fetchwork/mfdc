@@ -1,0 +1,33 @@
+# mfdc-whisper — post-call transcription sidecar.
+# Runs on the same standalone host as the other MFDC services; load is avoided by only transcribing
+# inside the night window configured in the UI (System → Settings → Transcription), not by isolation.
+# Resource limits below are a safety cap so Whisper never starves FreeSWITCH.
+services:
+  whisper:
+    build: .
+    image: mfdc-whisper:latest
+    container_name: mfdc-whisper
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9600:9600"   # bind to localhost; mfdc-runner posts here over HTTP
+    environment:
+      WHISPER_MODEL: "medium"
+      WHISPER_DEVICE: "cpu"
+      WHISPER_COMPUTE: "int8"
+      WHISPER_LANG: "auto"
+      WHISPER_BEAM: "1"
+      WHISPER_CPU_THREADS: "4"
+      WHISPER_NUM_WORKERS: "2"
+      WHISPER_PAUSE_SPLIT: "1.0"
+      LEFT_SPEAKER: "caller"      # left channel of the stereo recording
+      RIGHT_SPEAKER: "operator"   # right channel
+    volumes:
+      - whisper-cache:/root/.cache   # persist downloaded model weights
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4g
+
+volumes:
+  whisper-cache:

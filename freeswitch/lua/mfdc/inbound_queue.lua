@@ -1,0 +1,1 @@
+-- Broker ACD: join_queue compiles to answer + park; member register on AMQP CHANNEL_PARK.

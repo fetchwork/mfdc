@@ -1,0 +1,12 @@
+/var/log/opensips.log {
+	daily
+	rotate 10
+	missingok
+	notifempty
+	compress
+	delaycompress
+	copytruncate
+	dateext
+	dateformat -%Y%m%d
+	create 0640 root adm
+}

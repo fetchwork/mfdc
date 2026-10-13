@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+# Пересобрать nftables SIP allow-list из /etc/mfdc/sip_allow.list без полного install.sh.
+# Большие списки: elements многострочно + auto-merge; nft add element батчами при необходимости.
+#
+# Env:
+#   SIP_ALLOW_LIST=path
+#   SKIP_DOCKER_RESTART=1
+#   NFT_BATCH=500          размер батча при add element (дефолт 500)
+set -euo pipefail
+
+LIST="${SIP_ALLOW_LIST:-/etc/mfdc/sip_allow.list}"
+TPL="${NFT_TEMPLATE:-/etc/mfdc/nftables.mfdc.conf.tpl}"
+OUT="${NFT_OUT:-/etc/nftables.conf}"
+SSH_PORTS_FILE="${SSH_PORTS_FILE:-/etc/mfdc/ssh_ports}"
+NFT_BATCH="${NFT_BATCH:-500}"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+log() { echo "[sip-allow] $*" >&2; }
+
+[[ "$(id -u)" -eq 0 ]] || die "нужен root"
+[[ -f "$LIST" ]] || die "нет $LIST"
+[[ -f "$TPL" ]] || die "нет шаблона $TPL"
+
+normalize_ssh_ports() {
+  local raw="$1"
+  raw="$(printf '%s' "$raw" | tr -d '\r' | tr ',;' '  ' | tr -s '[:space:]' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  local out=() p
+  for p in $raw; do
+    [[ "$p" =~ ^[0-9]+$ ]] || continue
+    ((10#$p >= 1 && 10#$p <= 65535)) || continue
+    out+=("$p")
+  done
+  if ((${#out[@]} == 0)); then
+    echo "22, 8822"
+    return
+  fi
+  local IFS=', '
+  echo "${out[*]}"
+}
+
+resolve_ssh_ports() {
+  local ports=""
+  if [[ -n "${MFDC_SSH_PORTS:-}" && "${MFDC_SSH_PORTS}" != "auto" ]]; then
+    ports="${MFDC_SSH_PORTS}"
+  elif [[ -f "$SSH_PORTS_FILE" ]]; then
+    ports="$(tr -d '\r' < "$SSH_PORTS_FILE")"
+  elif [[ -f "$OUT" ]]; then
+    ports="$(tr -d '\r' < "$OUT" | sed -nE 's/.*tcp dport \{ ([0-9, ]+) \} accept.*/\1/p' | head -1)"
+  fi
+  normalize_ssh_ports "${ports:-22,8822}"
+}
+
+normalize_list() {
+  local out4="$1" out6="$2"
+  local raw
+  raw="$(mktemp)"
+  tr -d '\r' < "$LIST" \
+    | sed -e 's/#.*//' -e 's/,/\n/g' -e 's/[[:space:]]\+/\n/g' \
+    | sed -e '/^$/d' \
+    > "$raw"
+  grep -F ':' "$raw" | sort -u > "$out6" || true
+  grep -vF ':' "$raw" | sort -u > "$out4" || true
+  rm -f "$raw"
+}
+
+# Гарантировать auto-merge в шаблоне (иначе пересечения CIDR валят nft check).
+ensure_tpl_automerge() {
+  if grep -q 'auto-merge' "$TPL" 2>/dev/null; then
+    return 0
+  fi
+  log "в шаблоне нет auto-merge — добавляю"
+  local t
+  t="$(mktemp)"
+  awk '
+    /set sip_allow4/ { in4=1 }
+    /set sip_allow6/ { in6=1 }
+    in4 && /flags interval/ && !done4 {
+      print
+      print "\t\tauto-merge"
+      done4=1
+      next
+    }
+    in6 && /flags interval/ && !done6 {
+      print
+      print "\t\tauto-merge"
+      done6=1
+      next
+    }
+    /elements =/ { in4=0; in6=0 }
+    { print }
+  ' "$TPL" > "$t"
+  install -m 0644 "$t" "$TPL"
+  rm -f "$t"
+}
+
+# Собрать ruleset: sets БЕЗ elements (пустые) — элементы добавим батчами.
+build_base_conf() {
+  local ports="$1" dest="$2"
+  tr -d '\r' < "$TPL" | awk -v ports="$ports" '
+  {
+    gsub(/tcp dport \{ __SSH_PORTS__ \}/, "tcp dport { " ports " }")
+    gsub(/tcp dport \{ 22, 8822 \}/, "tcp dport { " ports " }")
+    # убрать плейсхолдеры elements — оставить пустой set (или с ::1 для v6)
+    if ($0 ~ /elements = \{ __SIP_ALLOW4__ \}/) {
+      next
+    }
+    if ($0 ~ /elements = \{ __SIP_ALLOW6__ \}/) {
+      next
+    }
+    print
+  }
+  ' > "$dest"
+}
+
+# Добавить элементы батчами. overlapping/interval — set с auto-merge.
+add_elements_batched() {
+  local family_set="$1" file="$2"
+  local n total batch line buf count err
+  total="$(wc -l < "$file" | tr -d '[:space:]')"
+  (( total > 0 )) || return 0
+  log "add element ${family_set}: ${total} шт. батчами по ${NFT_BATCH}"
+  err="$(mktemp)"
+  buf=""
+  count=0
+  n=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" ]] && continue
+    if [[ -n "$buf" ]]; then
+      buf+=", "
+    fi
+    buf+="$line"
+    count=$((count + 1))
+    n=$((n + 1))
+    if (( count >= NFT_BATCH )); then
+      if ! nft add element inet filter "${family_set}" "{ ${buf} }" 2>"$err"; then
+        echo "----- nft add element ${family_set} (near #${n}) -----" >&2
+        cat "$err" >&2
+        echo "batch sample: ${buf:0:200}…" >&2
+        rm -f "$err"
+        die "nft add element ${family_set} failed"
+      fi
+      buf=""
+      count=0
+      if (( n % 2000 == 0 )); then
+        log "  … ${n}/${total}"
+      fi
+    fi
+  done < "$file"
+  if [[ -n "$buf" ]]; then
+    if ! nft add element inet filter "${family_set}" "{ ${buf} }" 2>"$err"; then
+      echo "----- nft add element ${family_set} (хвост) -----" >&2
+      cat "$err" >&2
+      rm -f "$err"
+      die "nft add element ${family_set} failed (хвост)"
+    fi
+  fi
+  rm -f "$err"
+}
+
+# Записать /etc/nftables.conf из живого ruleset (для reboot).
+persist_full_conf() {
+  local dest="$1"
+  local tmp live
+  tmp="$(mktemp)"
+  live="$(mktemp)"
+  if ! nft list ruleset > "$live" 2>/dev/null; then
+    rm -f "$tmp" "$live"
+    die "nft list ruleset failed — нечего сохранить в ${dest}"
+  fi
+  {
+    echo '#!/usr/sbin/nft -f'
+    echo '# MFDC host firewall — generated by reload-sip-allow.sh'
+    echo 'flush ruleset'
+    cat "$live"
+  } > "$tmp"
+  install -m 0644 "$tmp" "$dest"
+  rm -f "$tmp" "$live"
+}
+
+ports="$(resolve_ssh_ports)"
+tmp4="$(mktemp)"
+tmp6="$(mktemp)"
+base="$(mktemp)"
+trap 'rm -f "$tmp4" "$tmp6" "$base"' EXIT
+
+ensure_tpl_automerge
+
+log "список ${LIST}…"
+normalize_list "$tmp4" "$tmp6"
+n4="$(wc -l < "$tmp4" | tr -d '[:space:]')"
+n6="$(wc -l < "$tmp6" | tr -d '[:space:]')"
+(( n4 > 0 )) || die "в $LIST нет IPv4"
+
+log "IPv4=${n4} IPv6=${n6} SSH={ ${ports} }"
+echo "$(echo "$ports" | tr -d '[:space:]')" > "$SSH_PORTS_FILE"
+chmod 0644 "$SSH_PORTS_FILE"
+
+log "базовый ruleset (пустые sip_allow*)…"
+build_base_conf "$ports" "$base"
+if grep -qE 'tcp dport \{ [0-9]{6,} \}' "$base"; then
+  die "SSH ports склеились: $(grep -oE 'tcp dport \{ [^}]+ \}' "$base" | head -1)"
+fi
+
+nft_err="$(mktemp)"
+if ! nft -c -f "$base" 2>"$nft_err"; then
+  echo "----- nft -c (base) -----" >&2
+  cat "$nft_err" >&2
+  rm -f "$nft_err"
+  die "nft check failed (base config / template)"
+fi
+rm -f "$nft_err"
+
+log "nft -f base…"
+nft -f "$base"
+
+log "наполнение sip_allow4…"
+add_elements_batched sip_allow4 "$tmp4"
+if [[ -s "$tmp6" ]]; then
+  log "наполнение sip_allow6…"
+  add_elements_batched sip_allow6 "$tmp6"
+else
+  nft add element inet filter sip_allow6 '{ ::1 }' 2>/dev/null || true
+fi
+
+log "сохранение ${OUT} для reboot…"
+persist_full_conf "$OUT"
+
+if [[ "${SKIP_DOCKER_RESTART:-0}" != "1" ]]; then
+  log "restart docker / rtpengine / sshguard…"
+  systemctl restart docker 2>/dev/null || true
+  systemctl restart ngcp-rtpengine-daemon 2>/dev/null || systemctl restart rtpengine 2>/dev/null || true
+  systemctl restart sshguard 2>/dev/null || true
+fi
+systemctl enable nftables >/dev/null 2>&1 || true
+
+echo "OK: SSH={ ${ports} } SIP IPv4=${n4} IPv6=${n6}"
+nft list set inet filter sip_allow4 2>/dev/null | head -5 || true

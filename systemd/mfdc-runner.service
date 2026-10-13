@@ -1,0 +1,24 @@
+[Unit]
+Description=MFDC Runner (FreeSWITCH node probe, playback)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=freeswitch
+Group=freeswitch
+WorkingDirectory=/opt/mfdc
+ExecStart=/opt/mfdc/mfdc-runner
+# Demo-стенд: сброс при старте и каждые сутки в 03:00 UTC
+# ExecStart=/opt/mfdc/mfdc-runner -demo
+Environment=MFDC_SETTINGS=/opt/mfdc/settings.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+StandardOutput=append:/var/log/mfdc/runner.log
+StandardError=append:/var/log/mfdc/runner.log
+
+[Install]
+WantedBy=multi-user.target

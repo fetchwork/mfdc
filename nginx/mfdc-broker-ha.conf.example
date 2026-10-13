@@ -1,0 +1,44 @@
+# HA fronting for mfdc-broker (xml_curl + /queue/*): FreeSWITCH mod_xml_curl talks to ONE url,
+# so run two broker instances and put this active/passive upstream in front. Point the FS
+# gateway-url (and mfdc_broker_url / settings.conf [mfdc-broker] peer bind, if customized)
+# at this nginx listener instead of a broker directly.
+#
+# Singleton engines (ACD dispatch, pacing, callback dialer, fraud monitor, AMQP consumers)
+# self-coordinate via a PostgreSQL advisory lock — only the leader runs them, so BOTH
+# instances stay in the upstream: any of them serves HTTP, failover is transparent.
+# GET /healthz returns {"status":"ok","leader":true|false}; do not route on "leader".
+
+# Rate-limit zone for the listener below (http{} context — put this next to the other
+# limit_req_zone directives if you keep them centrally).
+limit_req_zone $binary_remote_addr zone=mfdc_broker:10m rate=200r/s;
+
+upstream mfdc_broker {
+    server 10.0.0.11:9099 max_fails=2 fail_timeout=5s;
+    server 10.0.0.12:9099 max_fails=2 fail_timeout=5s backup;
+    keepalive 16;
+}
+
+server {
+    listen 9098;                       # the url FreeSWITCH points at
+
+    # ACL is NOT optional: this listener fronts the dialplan (POST /dialplan) and /queue/*,
+    # which are authenticated by the shared [api] key alone — and that key also travels in
+    # URLs as ?key=. Restrict it to the FS/OpenSIPS network and adjust the range to yours.
+    allow 10.0.0.0/24;
+    allow 127.0.0.1;
+    deny all;
+
+    # Slow the brute force of ?key= down: the broker has no lockout of its own.
+    limit_req zone=mfdc_broker burst=100 nodelay;
+    limit_req_status 429;
+
+    location / {
+        proxy_pass http://mfdc_broker;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 10s;
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+        proxy_next_upstream_tries 2;
+    }
+}

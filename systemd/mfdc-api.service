@@ -1,0 +1,27 @@
+[Unit]
+Description=MFDC UI API (auth, schemas, calendars)
+After=network-online.target postgresql.service mfdc-runner.service
+Wants=network-online.target mfdc-runner.service
+
+[Service]
+Type=simple
+User=freeswitch
+Group=freeswitch
+WorkingDirectory=/opt/mfdc
+ExecStart=/opt/mfdc/mfdc-api
+Environment=MFDC_SETTINGS=/opt/mfdc/settings.conf
+# Ключ проверки лицензий больше не файл: он лежит в system.platform_settings.licence_public_key
+# (пишет install/install.sh). LICENCE_PUBLIC_KEY_PATH удалён — переменная ничего не задавала бы.
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillMode=mixed
+LimitNOFILE=65535
+
+# Перед стартом: install-mfdc-runtime.sh (freeswitch:freeswitch), бинарник + settings.conf
+StandardOutput=append:/var/log/mfdc/api.log
+StandardError=append:/var/log/mfdc/api.log
+
+[Install]
+WantedBy=multi-user.target

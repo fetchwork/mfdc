@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<document type="freeswitch/xml">
+  <X-PRE-PROCESS cmd="include" data="vars.xml" />
+
+  <!-- DIALPLAN -->
+  <section name="dialplan" description="Regex/XML Dialplan">
+
+<context name="default">
+
+    <extension name="unloop">
+      <condition field="${unroll_loops}" expression="^true$"/>
+      <condition field="${sip_looped_call}" expression="^true$">
+           <action application="deflect" data="${destination_number}"/>
+      </condition>
+    </extension>
+
+   <extension name="global" continue="true">
+
+      <condition field="${rtp_has_crypto}" expression="^($${rtp_sdes_suites})$" break="never">
+        <action application="set" data="rtp_secure_media=true"/>
+      </condition>
+
+      <condition field="${endpoint_disposition}" expression="^(DELAYED NEGOTIATION)"/>
+      <condition field="${switch_r_sdp}" expression="(AES_CM_128_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_80)" break="never">
+        <action application="set" data="rtp_secure_media=true"/>
+      </condition>
+
+    </extension>
+
+  </context>
+
+<context name="public">
+
+    <extension name="unloop">
+      <condition field="${unroll_loops}" expression="^true$"/>
+      <condition field="${sip_looped_call}" expression="^true$">
+           <action application="deflect" data="${destination_number}"/>
+      </condition>
+    </extension>
+
+   <extension name="global" continue="true">
+
+      <condition field="${rtp_has_crypto}" expression="^($${rtp_sdes_suites})$" break="never">
+        <action application="set" data="rtp_secure_media=true"/>
+      </condition>
+
+      <condition field="${endpoint_disposition}" expression="^(DELAYED NEGOTIATION)"/>
+      <condition field="${switch_r_sdp}" expression="(AES_CM_128_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_80)" break="never">
+        <action application="set" data="rtp_secure_media=true"/>
+      </condition>
+
+    </extension>
+
+   <extension name="from-site" continue="true">
+      <condition field="${destination_number}" expression="^call-from-web$">
+              <action application="set" data="transfer_to_schema_id=${sip_h_X-MFDC-Schema-Id}"/>
+              <action application="set" data="wbt_web_call=true"/>
+              <action application="set" data="effective_caller_id_number=$${outbound_caller_id}"/>
+      </condition>
+    </extension>
+
+   <extension name="from-portal" continue="true">
+      <condition field="${destination_number}" expression="^service$">
+              <action application="set" data="transfer_to_schema_id=${sip_h_X-MFDC-Schema-Id}"/>
+              <action application="set" data="wbt_web_call=true"/>
+      </condition>
+    </extension>
+
+  </context>
+
+ </section>
+
+ <!-- CONFIGURATIONS -->
+<section name="configuration" description="MFDC FreeSWITCH Configurations">
+  <X-PRE-PROCESS cmd="include" data="configuration.xml" />
+</section>
+
+</document>

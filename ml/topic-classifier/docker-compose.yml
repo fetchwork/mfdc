@@ -1,0 +1,41 @@
+# mfdc-topic-classifier — embedding-based transcript topic tagging (Phase 2).
+# Reads the topic taxonomy from PostgreSQL (broker.call_topics), embeds each topic's example phrases into
+# a centroid, and tags transcripts by cosine similarity. mfdc-runner calls /classify after transcription
+# (gated by the "topic_enabled" transcription setting); mfdc-api calls /reindex when topics change.
+services:
+  topic-classifier:
+    build: .
+    image: mfdc-topic-classifier:latest
+    container_name: mfdc-topic-classifier
+    restart: unless-stopped
+    # Host networking: the classifier connects to the SAME PostgreSQL as the native MFDC services (the
+    # settings.conf host — often a separate DB server, e.g. 10.10.10.7). On the default bridge network the
+    # container's traffic to a LAN DB is dropped by the host FORWARD/ufw policy (psycopg2 "Connection timed
+    # out"); host mode routes it through the host stack exactly like mfdc-runner, so the runner-supplied DSN
+    # works as-is. gunicorn is bound to 127.0.0.1 below so port 9601 is NOT exposed on the LAN — mfdc-runner
+    # and mfdc-api reach it on localhost. Single worker: shared embedding model + PG connection in RAM.
+    network_mode: host
+    command: ["gunicorn", "app:app", "-k", "uvicorn.workers.UvicornWorker", "-b", "127.0.0.1:9601", "-w", "1", "--timeout", "600"]
+    environment:
+      # PG DSN is normally supplied per-request by mfdc-runner / mfdc-api (built from settings.conf, the
+      # single source of truth) on /reindex and /train — see shared.TopicClassifierPGDSN. This env is only a
+      # fallback for standalone testing; leave blank in production so credentials live only in settings.conf.
+      PG_DSN: ""
+      EMB_MODEL: "intfloat/multilingual-e5-base"   # MIT; retrain ONNX after switching from e5-large
+      EMB_DEVICE: "cpu"
+      MIN_PROB: "0.30"   # min class probability to assign a topic at inference
+      ORT_INTRA_THREADS: "2"
+      ORT_INTER_THREADS: "1"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
+    volumes:
+      - topic-cache:/root/.cache   # persist downloaded model weights
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
+
+volumes:
+  topic-cache:

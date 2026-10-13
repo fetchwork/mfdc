@@ -1,0 +1,19 @@
+# FreeSWITCH mod_logfile → /var/log/freeswitch/core.log (logfile.conf).
+# Pattern is *.log on purpose: /var/log/freeswitch/* would re-rotate dateext
+# archives and numbered leftovers from maximum-rotate (core.log.1 …).
+# copytruncate — процесс держит fd; rename без truncate оставил бы запись в старый inode.
+# su обязателен: каталог логов freeswitch:freeswitch; без su logrotate на Debian
+# пропускает файлы ("parent directory has insecure permissions").
+# create не нужен: copytruncate оставляет тот же inode.
+/var/log/freeswitch/*.log {
+	daily
+	rotate 10
+	missingok
+	notifempty
+	compress
+	delaycompress
+	copytruncate
+	dateext
+	dateformat -%Y%m%d
+	su freeswitch freeswitch
+}

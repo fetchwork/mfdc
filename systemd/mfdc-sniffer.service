@@ -1,0 +1,27 @@
+[Unit]
+Description=MFDC Sniffer (per-node RTP/SIP capture + AMD)
+After=network-online.target freeswitch.service rabbitmq-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# AF_PACKET capture needs CAP_NET_RAW. Running as root is simplest on an FS node;
+# alternatively keep a non-root user and rely on AmbientCapabilities below.
+User=freeswitch
+Group=freeswitch
+WorkingDirectory=/opt/mfdc
+ExecStart=/opt/mfdc/mfdc-sniffer
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+
+# onnxruntime shared lib + ml.onnx live beside the binary (AMD model).
+Environment=ONNXRUNTIME_SHARED_LIBRARY_PATH=/opt/mfdc/sniffer/libonnxruntime.so
+
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+StandardOutput=append:/var/log/mfdc/sniffer.log
+StandardError=append:/var/log/mfdc/sniffer.log
+
+[Install]
+WantedBy=multi-user.target

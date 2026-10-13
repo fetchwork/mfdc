@@ -1,0 +1,118 @@
+# Example Prometheus alert rules for mfdc-broker (GET :9099/metrics).
+# Adjust thresholds to the stand's traffic profile before enabling in production.
+#
+# Scrape config example:
+#   - job_name: mfdc-broker
+#     static_configs:
+#       - targets: ['10.0.0.10:9099']   # broker bind (internal network only)
+
+groups:
+  - name: mfdc-broker
+    rules:
+      - alert: MFDCBrokerDown
+        expr: up{job="mfdc-broker"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "mfdc-broker scrape failed"
+          description: "Prometheus cannot scrape mfdc-broker /metrics for 1m — the ACD dispatch loop may be down."
+
+      - alert: MFDCDispatchCycleSlow
+        # p99 of the dispatch cycle above 1s for 5m: cycles overlap the 500ms tick — queue wait grows.
+        expr: histogram_quantile(0.99, sum(rate(mfdc_dispatch_cycle_seconds_bucket[5m])) by (le)) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ACD dispatch cycle p99 > 1s"
+          description: "Dispatch cycles exceed the 500ms tick budget; check PG latency and ESL round-trips."
+
+      - alert: MFDCESLErrorRate
+        expr: sum(rate(mfdc_esl_errors_total[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FreeSWITCH ESL command failures"
+          description: "ESL commands are failing (>0.5/s over 5m) — FS node down, auth, or network issue. See mfdc_esl_errors_total by command."
+
+      - alert: MFDCAMQPReconnectFlapping
+        expr: increase(mfdc_amqp_counters_total{key=~"connect_error|reconnect_error"}[10m]) > 5
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RabbitMQ connection flapping"
+          description: "Broker reconnected to RabbitMQ more than 5 times in 10m — events (CDR, ACD) may be delayed."
+
+      - alert: MFDCEventPipelineDown
+        # The event pipeline is what turns a call into a CDR. While it is down the broker refuses new calls
+        # (guard mode "block"), so this is a telephony outage, not a reporting problem.
+        expr: mfdc_amqp_pipeline_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FreeSWITCH event pipeline down"
+          description: "Broker sees no working path for channel events (RabbitMQ down, resource alarm, or a lost binding). Grep the broker log for [amqp-guard]; new calls are being refused if the guard is in block mode."
+
+      - alert: MFDCRabbitBlocked
+        # RabbitMQ raised a resource alarm (almost always disk). Publishers are frozen: FreeSWITCH cannot emit
+        # a single event, and nothing will be recorded until space is freed.
+        expr: mfdc_amqp_pipeline_blocked == 1
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RabbitMQ blocked publishers (disk/memory alarm)"
+          description: "Free disk space on the RabbitMQ node (or raise the watermark). Calls are being refused while this lasts."
+
+      - alert: MFDCCallsRefusedByGuard
+        expr: increase(mfdc_amqp_guard_rejected_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Calls are being refused: no event pipeline"
+          description: "{{ $value }} call(s) refused at {{ $labels.kind }} in 5m because events cannot reach the broker."
+
+      - alert: MFDCQueueWaitingHigh
+        expr: mfdc_queue_waiting > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inbound queue backlog"
+          description: "More than 20 callers are waiting in queues for 5m — not enough ready operators or dispatch is stuck."
+
+      - alert: MFDCGatewayMOSLow
+        expr: mfdc_gateway_mos < 3.5 and mfdc_gateway_media_reports >= 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway RTP quality degraded (MOS < 3.5)"
+          description: "Average worst-leg MOS on gateway {{ $labels.gateway_id }} is below 3.5 over 15m windows — check the provider/route."
+
+      - alert: MFDCFraudAlert
+        expr: increase(mfdc_fraud_alerts_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Toll-fraud detector fired"
+          description: "See system.fraud_alerts and the broker log (FRAUD ALERT ...) for the caller/rule. Detection only — no auto-blocking."
+
+      - alert: MFDCQueueAbandonRateHigh
+        # Share of members ending abandoned vs bridged over 15m.
+        expr: |
+          sum(rate(mfdc_queue_member_end_total{state="abandoned"}[15m]))
+            /
+          (sum(rate(mfdc_queue_bridged_total[15m])) + sum(rate(mfdc_queue_member_end_total{state="abandoned"}[15m]))) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue abandon rate above 20%"
+          description: "Callers are hanging up before reaching an operator. Check staffing, queue timers and campaign overdial."
