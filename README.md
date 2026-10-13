@@ -1,20 +1,30 @@
 # MFDC
 
-MFDC is a phone system and contact center you run on your own server. Extensions, SIP trunks, visual call flows, queues, an operator desk in the browser, outbound campaigns, call recordings, and a call history. Download it, install it, and try the demo. No licence file is required.
+MFDC is a company phone system and contact center you install on your own server. Calls reach a person, queues keep the ones that wait, and you can see what was said without listening to every recording by hand. Recordings, history, and transcription stay on your infrastructure. Download it and try the demo. No licence file is required.
 
 The panel opens in English. Russian is in the language switch at the top.
 
 ## What it does
 
-**Office phones.** Internal numbers on desk phones or in the browser. Calls between staff, transfers from the handset, caller ID, and business hours.
+**Visual call flows.** Draw the call: a greeting, a keypad menu, working hours and holidays, a queue, voicemail, a quality survey, a recording, and a notification. Save the drawing and the next call follows it.
 
-**Trunks.** Connect your SIP provider. Inbound numbers land on a call flow. Outbound calls leave through the route you choose, with your caller ID.
+**Phones and trunks.** Internal numbers on a desk phone or in the browser. Staff call each other and transfer from the handset. Inbound numbers land on a flow. Outbound routes pick the trunk, the caller ID, and who is allowed to dial out. Calendars and number lists decide what happens next.
 
-**Call flows.** Draw the call instead of writing a dialplan: greetings, IVR menus, working-hours calendars, conditions, number lists, and connecting the caller to a person, a group, or a queue.
+**Operator desk.** A browser tab and a headset. Ready and pause, pause after the current call, auto-answer, team chat, missed calls, and a sound check before the shift.
 
-**Contact center.** Queues, an operator panel (ready, pause, answer in the browser), and a supervisor view of who is talking. A supervisor can listen to a live call. Outbound campaigns dial the list and connect answers to free operators.
+**Queues.** Calls go to the right operator: hunt, least-recent, round-robin, or ring everyone. Skills and priority narrow the pool. A returning caller can reach the same operator again. From the queue the caller can ask for a callback and hear their place in line.
 
-**History.** Every call is in the journal, with duration, outcome, and the recording when one was made. Export the journal, or send call events to an external CRM.
+**Outbound campaigns.** Progressive, predictive, and ratio dialing. The dialer keeps operators busy and watches how many callers hang up while waiting. Answering machines can be detected and dropped before an operator is offered the call. Outbound numbers rotate, and each campaign has its own hours and attempt limits.
+
+**Supervisor.** A live board of who is waiting, who is talking, and who is free, with service level and expected wait. Listen to a call, whisper to the operator, or join the conversation. Pause an operator, and read the ratings customers leave after the call.
+
+**Call history.** Duration, outcome, the recording, and a line-quality score. Export the journal to Excel. Send it to a CRM, and start a call from the CRM in one click.
+
+**Transcription on your server.** Recorded calls become text, split into customer and operator. Topics such as a sale, a complaint, or a product question are tagged automatically, and a supervisor’s corrections teach the model. A live audio copy can stream to your own AI while the call is still going.
+
+**Access.** Roles and custom permissions, two-factor sign-in, and company login through LDAP, Active Directory, OIDC, or SAML. An audit log of who changed what. Alerts for unusual calling patterns, and a lockout after repeated wrong SIP passwords.
+
+**It keeps running.** Several FreeSWITCH nodes, with a node taken out of service when it stops answering. Health checks and Prometheus metrics. Recordings on disk or in your own S3 bucket. A backup of the whole configuration, restored onto this server or a new one.
 
 ## Demo
 
