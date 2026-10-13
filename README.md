@@ -1,75 +1,64 @@
 # MFDC
 
-Self-hosted PBX and contact center: FreeSWITCH, OpenSIPS, PostgreSQL, RabbitMQ, and a web panel.
+MFDC is a phone system and contact center you run on your own server. Extensions, SIP trunks, visual call flows, queues, an operator desk in the browser, outbound campaigns, call recordings, and a call history. Download it, install it, and try the demo. No licence file is required.
 
-This repository is a ready-to-install package for Debian 12 (bookworm) amd64. Nothing is compiled on the server. The installer uses the binaries and the web UI shipped here.
+The panel opens in English. Russian is in the language switch at the top.
 
-Without a licence file the product runs as a demo. A commercial licence removes the demo limits. Contact [Telegram @voip_dmitiy](https://t.me/voip_dmitiy).
+## What it does
 
-The panel opens in **English**. Russian is available from the language switch in the top bar. A purchased licence can restrict the panel to the languages it grants.
+**Office phones.** Internal numbers on desk phones or in the browser. Calls between staff, transfers from the handset, caller ID, and business hours.
+
+**Trunks.** Connect your SIP provider. Inbound numbers land on a call flow. Outbound calls leave through the route you choose, with your caller ID.
+
+**Call flows.** Draw the call instead of writing a dialplan: greetings, IVR menus, working-hours calendars, conditions, number lists, and connecting the caller to a person, a group, or a queue.
+
+**Contact center.** Queues, an operator panel (ready, pause, answer in the browser), and a supervisor view of who is talking. A supervisor can listen to a live call. Outbound campaigns dial the list and connect answers to free operators.
+
+**History.** Every call is in the journal, with duration, outcome, and the recording when one was made. Export the journal, or send call events to an external CRM.
 
 ## Demo
 
-No licence file is required. Until a licence is installed, each domain is limited to:
+Install and use it without buying anything. Until a licence is loaded, one domain can have:
 
 - **10** SIP devices
 - **5** contact-center operators
 
-The rest of the product is available. An expired or invalid licence stops service. Having no licence does not.
+Everything else in the product is available. An expired licence stops the service. No licence does not.
 
-## Buying a licence
-
-1. Install MFDC and open **Licences** in the panel.
-2. Download the request and send it on Telegram: [t.me/voip_dmitiy](https://t.me/voip_dmitiy).
-3. Upload the `licence.json` you receive on the same page.
-
-The verification public key is already in this package (`public.key`). The installer writes it into the database.
+To remove the limits, open **Licences** in the panel, download the request, and send it on Telegram: [t.me/voip_dmitiy](https://t.me/voip_dmitiy). Upload the `licence.json` you receive on the same page.
 
 ## Install
 
-You need root, Debian 12 amd64, and a DNS A record pointing at the server. FreeSWITCH packages require a SignalWire personal token (`TOKEN`).
+A Debian 12 server, then one thing you bring yourself: a free [SignalWire](https://signalwire.com) token, which FreeSWITCH uses to download its packages.
 
 ```bash
 git clone https://github.com/fetchwork/mfdc.git
 cd mfdc
 unzip -o ui.zip -d ui
-export TOKEN='xxxxxxxx'
-# optional; otherwise the script asks:
-# export MFDC_DOMAIN=pbx.example.com LE_EMAIL=admin@example.com
-bash install.sh
+export TOKEN='your-signalwire-token'
+sudo bash install.sh
 ```
 
-The script asks for the domain and a Let's Encrypt email, then installs FreeSWITCH, PostgreSQL, OpenSIPS, RabbitMQ, rtpengine, nginx, the panel, and the `mfdc-*` services.
+The script asks for your domain name and an email for the certificate, then installs the phone system, the database, and the panel. Open `https://your-domain/` when it finishes.
 
-The default PostgreSQL password is `mfdc_passwd` (role `mfdc_admin`, database `mfdc`). Set your own with `MFDC_PG_PASS` before the first run.
+Point the domain’s DNS A record at the server before you start, so the certificate can be issued.
 
-SIP from the internet is accepted only from your providers and office. Put those addresses in `nftables/sip_allow.list`, or answer the prompt (`SIP_ALLOW=203.0.113.10,198.51.100.0/24`).
+### SignalWire token
 
-Lab install without TLS: `HTTP_ONLY=1`.
+FreeSWITCH packages are published by SignalWire. The account is free. MFDC does not ship the token. Official steps, from the FreeSWITCH manual:
+
+1. Create a SignalWire space at [signalwire.com](https://signalwire.com) and sign in.
+2. Open **Personal Access Tokens**: [my.signalwire.com/?page=personal_access_tokens](https://my.signalwire.com/?page=personal_access_tokens).
+3. Create a token and copy it. That value is `TOKEN` above.
+
+How SignalWire describes it: [Obtaining a SignalWire Personal Access Token](https://developer.signalwire.com/freeswitch/foundations/getting-started#obtaining-a-signalwire-personal-access-token) in [Chapter 2: Getting Started](https://developer.signalwire.com/freeswitch/foundations/getting-started).
 
 ## Update
 
 ```bash
-cd /path/to/mfdc
 git pull
 unzip -o ui.zip -d ui
-bash install.sh -update
+sudo bash install.sh -update
 ```
 
-`-update` copies binaries to `/opt/mfdc` and the panel to `/var/www/mfdc-ui`, keeps the previous copy in `/opt/mfdc/backup`, and restarts only what changed.
-
-Roll back:
-
-```bash
-bash install.sh -update-rollback
-```
-
-## After install
-
-```bash
-systemctl status mfdc-runner mfdc-api mfdc-broker opensips freeswitch rabbitmq-server
-```
-
-Open `https://your-domain/`. Then add extensions, trunks, and call flows.
-
-Other switches: `SKIP_DOCKER=1`, `SKIP_ML=1`, `SKIP_FIREWALL=1`, `FORCE_CONFIG=1`. The full list is at the top of `install.sh`.
+The previous copy is kept in `/opt/mfdc/backup`. Restore it with `sudo bash install.sh -update-rollback`.
