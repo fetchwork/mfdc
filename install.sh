@@ -3308,8 +3308,9 @@ verify_opensips_authban() {
   [[ -f "$cfg" ]] || { warn "opensips.cfg не найден — проверку auth-ban пропуск"; return; }
 
   # $var(fails) >= 3 — в ERE «$» = EOL, поэтому ищем cache_add authfail + порог через escapes
-  if grep -qF 'authban_$tU@$td' "$cfg" \
-    && grep -qF 'authfail_$tU@$td' "$cfg" \
+  # ключ бана — $var(regdom) (legacy-телефоны с IP в To); старые cfg держали $td
+  if { grep -qF 'authban_$tU@$var(regdom)' "$cfg" || grep -qF 'authban_$tU@$td' "$cfg"; } \
+    && { grep -qF 'authfail_$tU@$var(regdom)' "$cfg" || grep -qF 'authfail_$tU@$td' "$cfg"; } \
     && grep -qE 'fails\)[[:space:]]*>=[[:space:]]*3' "$cfg" \
     && grep -q 'cache_store("local", "authban_' "$cfg"; then
     ok "OpenSIPS REGISTER auth-ban: 3 неверных пароля/user → бан AOR на 1ч (не по IP — WebRTC за nginx)"
@@ -3334,6 +3335,9 @@ print_summary() {
 ========================================
   UI:        ${ui_url}
   WSS:       ${wss_url}
+  Вход закрыт, пока в /opt/mfdc/settings.conf стоит reset_admin_passwd = true.
+  Поставьте false и выполните: systemctl reload mfdc-api
+  Затем войдите admin / admin и сразу смените пароль.
   API:       127.0.0.1:8001
   Broker:    127.0.0.1:9099
   Whisper:   http://127.0.0.1:9600   (docker mfdc-whisper)
