@@ -1,6 +1,6 @@
 # MFDC
 
-MFDC is a company phone system and contact center you install on your own server. Calls reach a person, queues keep the ones that wait, and you can see what was said without listening to every recording by hand. Recordings, history, and transcription stay on your infrastructure. Download it and try the demo. No licence file is required.
+MFDC (Multi-Functional Dialing Center) is a company phone system and contact center you install on your own server. Calls reach a person, queues keep the ones that wait, and you can see what was said without listening to every recording by hand. Recordings, history, and transcription stay on your infrastructure. Download it and try the demo. No licence file is required.
 
 The panel opens in English. Russian is in the language switch at the top.
 
